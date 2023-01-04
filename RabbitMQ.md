@@ -228,7 +228,7 @@ public class Publisher {
 }
 ```
 
-##### Consumer
+##### <a id="ack">Consumer</a>
 
 > 关闭消费者自动ACK并设置消息流控(Qos),最终实现消费快的消费者尽可能多的去消费
 
@@ -849,9 +849,175 @@ public class Consumer {
 
 ![image-20221129035401858](https://i0.hdslb.com/bfs/album/0f490cb8e7590c1b3f664c947eb469734339a913.png)
 
-### [Publisher Confirms](https://www.rabbitmq.com/tutorials/tutorial-seven-java.html)
+### [Publisher Confirms](https://www.rabbitmq.com/tutorials/tutorial-seven-java.html)(保证消息可靠性)
 
-> 保证消息可靠性
+#### 发送途中消息丢失
+
+> - 生产者收到命令将消息发出，随机生产者认为已经将这条消息发送到了交换机中
+> - 但是由于网络原因导致消息在发送途中丢失了没有到达交换机
+
+![image-20221219170830990](https://i0.hdslb.com/bfs/album/3be848b1bf5a29a8f6684af362a7f0e72b57d4aa.png)
+
+##### 解决方案
+
+>**保证消息成功发送到了交换机**
+>
+>利用`Confirm机制`，根据`ConfirmListener`的异步回调，进入`handleAck`方法确定消息发送成功
+
+##### 代码示例
+
+```java
+//开启confirms
+channel.confirmSelect();
+
+//confirms异步回调
+channel.addConfirmListener(new ConfirmListener() {
+  @Override
+  public void handleAck(long l, boolean b) {
+    System.out.println("消息发送成功：" + msg);
+  }
+
+  @Override
+  public void handleNack(long l, boolean b) throws IOException {
+    System.out.println("消息发送失败，Retry...");
+  }
+});
+```
+
+#### 服务宕机消息丢失
+
+> - 交换机不具备持久化消息的能力
+> - 当服务器宕机或MQ重启服务时就会导致没有路由到队列中的消息丢失
+> - 但是队列默认是`不具备持久化消息`的能力，需要`手动开启(DeliveryMode)`
+
+![image-20221219171459517](https://i0.hdslb.com/bfs/album/1b23e1ad4aba33c9cdfb49ef6bc300b49dc64206.png)
+
+##### 解决方案1
+
+> **保证消息成功路由到了队列中**
+>
+> - 利用`return机制` ，确认消息是否路由到了队列
+> - 只有当`消息没有路由到队列时`才会`回调return`方法
+> - 需要手动将队列改为：QUEUE_NAME+"1111"，使其在我们现有的MQ服务中不存在即可
+
+##### 代码示例1
+
+```java
+//return机制 （确认消息是否路由到了队列）
+//消息没有路由到队列时会回调return方法
+channel.addReturnListener((replyCode, replyText, exchange, routingKey, basicProperties, bytes) 
+                          -> System.out.println("消息已送达到交换机，但未路由到指定队列，可做补偿机制..."));
+```
+
+##### 解决方案2
+
+> **保证队列支持消息持久化** 
+>
+> - `DeliveryMode设置消息持久化:（设置为1：不持久化消息 | 设置为2：持久化消息）`
+
+##### 代码示例2
+
+```java
+//设置消息持久化
+//服务器宕机/MQ服务重启消息依旧会存在队列中
+AMQP.BasicProperties properties = new AMQP.BasicProperties().builder()
+  //2:持久化消息 1:不持久化消息
+  .deliveryMode(2)
+  .build();
+
+//在发送消息时需要将'mandatory'属性设置为ture,代表开启return机制
+//basicPublish(交换机, 队列, mandatory值,属性, 消息内容)
+//QUEUE_NAME+"111"，手动调整为不存在的队列，否则无法回调return方法
+channel.basicPublish("", QUEUE_NAME, true, properties, msg.getBytes(StandardCharsets.UTF_8));
+```
+
+#### 消费者消费失败
+
+![image-20221219171950255](https://i0.hdslb.com/bfs/album/184ea9cb7519320b964a1cd3ac620e4781878bdf.png)
+
+##### 解决方案
+
+> **保证消费者正常消费消息**
+>
+> - [设置手动ACK](#ack)
+
+```java
+//设置消息流控
+channel.basicQos(1);
+//消费消息
+//如果需要让性能高的消费者尽可能多的消费，就要关闭自动ACK:false，改为手动ACK
+channel.basicConsume(Publisher.QUEUE_NAME, false, new DefaultConsumer(channel) {
+  @Override
+  public void handleDelivery(String consumerTag, Envelope envelope, AMQP.BasicProperties properties, byte[] body) throws IOException {
+    try {
+      Thread.sleep(100);
+    } catch (InterruptedException e) {
+      throw new RuntimeException(e);
+    }
+    System.out.println("consumer2消费到消息:" + new String(body, StandardCharsets.UTF_8));
+    channel.basicAck(envelope.getDeliveryTag(), false);
+  }
+});
+```
+
+#### 上述案例完整代码
+
+```java
+public class Publisher {
+    public static final String QUEUE_NAME = "confirmsQueue";
+    public static final String EXCHANGE_NAME = "confirmsExchange";
+
+    public static void main(String[] args) throws Exception {
+        //构建连接对象
+        Connection connection = ConnectionUtil.getConnection();
+
+        //构建channel
+        Channel channel = connection.createChannel();
+
+        //声明队列
+        //queueDeclare(queue, durable, exclusive, autoDelete, arguments)
+        //durable:true 队列持久化
+        channel.queueDeclare(QUEUE_NAME, true, false, false, null);
+
+        //准备消息
+        String msg = "hello";
+
+        //开启confirms
+        channel.confirmSelect();
+
+        //confirms异步回调
+        channel.addConfirmListener(new ConfirmListener() {
+            @Override
+            public void handleAck(long l, boolean b) {
+                System.out.println("消息发送成功：" + msg);
+            }
+
+            @Override
+            public void handleNack(long l, boolean b) throws IOException {
+                System.out.println("消息发送失败，Retry...");
+            }
+        });
+
+        //return机制 （确认消息是否路由到了队列）
+        //消息没有路由到队列时会回调return方法
+        channel.addReturnListener((replyCode, replyText, exchange, routingKey, basicProperties, bytes) 
+                                  -> System.out.println("消息已送达到交换机，但未路由到指定队列，可做补偿机制..."));
+
+        //设置消息持久化
+        //服务器宕机/MQ服务重启消息依旧会存在队列中
+        AMQP.BasicProperties properties = new AMQP.BasicProperties().builder()
+                .deliveryMode(2)
+                .build();
+
+        //在发送消息时需要将'mandatory'属性设置为ture,代表开启return机制
+        //basicPublish(交换机, 队列, mandatory值,属性, 消息内容)
+        //QUEUE_NAME+"111"，手动调整为不存在的队列，否则无法回调return方法
+        channel.basicPublish("", QUEUE_NAME, true, properties, msg.getBytes(StandardCharsets.UTF_8));
+
+        System.in.read();
+    }
+}
+```
 
 ### SpringBoot集成RabbitMQ
 
@@ -1056,74 +1222,154 @@ public class ConsumerListener {
 
 ![image-20221214015458709](https://i0.hdslb.com/bfs/album/0eebef6dfb8a2b979eddd91cd00f4670e3fa10e5.png)
 
-### 保证消息可靠性
+### Springboot实现消息可靠传输
 
-#### 发送途中消息丢失
+#### Confirm机制
 
-![image-20221219170830990](https://i0.hdslb.com/bfs/album/3be848b1bf5a29a8f6684af362a7f0e72b57d4aa.png)
+##### 配置
 
-##### 解决方案
+> 配置`application.yml`，开启`confirm机制`
 
->**保证消息成功发送到了交换机**
->
->利用`Confirm机制`，根据`ConfirmListener`的异步回调，进入`handleAck`方法确定消息发送成功
+```yaml
+spring:
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    listener:
+      simple:
+        #手动ACK
+        acknowledge-mode: manual
+        #每次接收多少条消息
+        prefetch: 10
+    #开启confirm机制
+    publisher-confirm-type: correlated
+```
+
+##### 代码示例
 
 ```java
+@SpringBootTest
 public class Publisher {
-    public static final String QUEUE_NAME = "confirmsQueue";
-    public static final String EXCHANGE_NAME = "confirmsExchange";
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
 
-    public static void main(String[] args) throws Exception {
-        //构建连接对象
-        Connection connection = ConnectionUtil.getConnection();
-
-        //构建channel
-        Channel channel = connection.createChannel();
-
-        //声明队列
-        channel.queueDeclare(QUEUE_NAME, false, false, false, null);
-
-        //准备消息
-        String msg = "hello";
-
-        //开启confirms
-        channel.confirmSelect();
-
-        //confirms异步回调
-        channel.addConfirmListener(new ConfirmListener() {
-            @Override
-            public void handleAck(long l, boolean b) {
-                System.out.println("消息发送成功：" + msg);
-            }
-
-            @Override
-            public void handleNack(long l, boolean b) throws IOException {
-                System.out.println("消息发送失败，Retry...");
+    /**
+     * Confirms机制
+     * @author Rhys.Ni
+     * @date 2023/1/5
+     * @param
+     * @return void
+     */
+    @Test
+    public void convertAndSendConfirm() {
+        rabbitTemplate.setConfirmCallback((correlationData, isAck, strCause) -> {
+            if (isAck){
+                System.out.println("消息成功发送到交换机中");
+            }else{
+                System.out.println("消息发送到交换机失败,进行补偿操作");
             }
         });
-
-        //发送消息
-        channel.basicPublish("", QUEUE_NAME, null, msg.getBytes(StandardCharsets.UTF_8));
-
-        System.in.read();
+        rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, "RhysNi.test.Ni", "RhysNi RabbitMQ 实战手册（Confirms机制）");
+        System.out.println("消息发送成功（Confirms机制）");
     }
 }
 ```
 
-#### 服务宕机消息丢失
+> 运行结果
 
-![image-20221219171459517](https://i0.hdslb.com/bfs/album/1b23e1ad4aba33c9cdfb49ef6bc300b49dc64206.png)
+![image-20230105031243157](https://i0.hdslb.com/bfs/album/90efb1ae9688983b5597cffb0e07f2c16095d2cc.png)
 
-##### 解决方案
+#### Return机制
 
-> **保证消息成功路由到了队列中**
+##### 配置
 
-> **保证队列支持消息持久化**
+```yaml
+spring:
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    listener:
+      simple:
+        #手动ACK
+        acknowledge-mode: manual
+        #每次接收多少条消息
+        prefetch: 10
+    #开启confirm机制
+    publisher-confirm-type: correlated
+    #开启Return机制
+    publisher-returns: true
+```
 
-#### 消费者消费失败
+##### 代码示例
 
-![image-20221219171950255](https://i0.hdslb.com/bfs/album/184ea9cb7519320b964a1cd3ac620e4781878bdf.png)
+> **returnedMessage中可获取到交换机以及路由信息**
 
-##### 解决方案
+```java
+@SpringBootTest
+public class Publisher {
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
 
-> **保证消费者正常消费消息**
+    /**
+     * Return机制
+     * @author Rhys.Ni
+     * @date 2023/1/5
+     * @param
+     * @return void
+     */
+    @Test
+    public void convertAndSendReturn() {
+        rabbitTemplate.setReturnsCallback(returnedMessage -> {
+            String msg = new String(returnedMessage.getMessage().getBody());
+            System.out.println("msg:"+msg+"路由到队列失败，进行补偿操作,returnedMessage中可获取到交换机以及路由信息，可重新发送到交换机等。。。");
+        });
+        //由于RabbitMQConfig中配置的路由规则是 *.test.* 所以这里需要手动将 Rhys.test.Ni 改为 Rhys.test1.Ni 模拟失败操作
+        rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, "Rhys.test1.Ni", "RhysNi RabbitMQ 实战手册（Return机制）");
+        System.out.println("消息发送成功（Return机制）");
+    }
+}
+```
+
+> 运行结果
+
+![image-20230105033007810](https://i0.hdslb.com/bfs/album/10cfee01ff5a74e5a0bfe7ccca8ac615f1eefe60.png)
+
+> 如果将路由Key改回正确的`Rhys.test.Ni`则不会进入此回调，代表路由到队列成功了
+
+![image-20230105033142643](https://i0.hdslb.com/bfs/album/7a3321beb0d342efaba7ca05ca62edcf98f2ef2e.png)
+
+#### 消息持久化
+
+##### 代码示例
+
+> - new MessagePostProcessor()
+> - `MessageDeliveryMode.PERSISTENT`(持久化)
+> - `MessageDeliveryMode.NON_PERSISTENT` (不持久化)
+
+```java
+    /**
+     * 消息持久化(new MessagePostProcessor())
+     * MessageDeliveryMode.PERSISTENT 持久化
+     * MessageDeliveryMode.NON_PERSISTENT 不持久化
+     *
+     * @param
+     * @return void
+     * @author Rhys.Ni
+     * @date 2023/1/5
+     */
+    @Test
+    public void convertAndSendBasicProps() {
+        rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, "Rhys.test.Ni", "RhysNi RabbitMQ 实战手册（消息持久化）", message -> {
+            message.getMessageProperties().setDeliveryMode(MessageDeliveryMode.PERSISTENT);
+            return message;
+        });
+        System.out.println("消息发送成功（消息持久化）");
+    }
+```
+

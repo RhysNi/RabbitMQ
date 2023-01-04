@@ -11,3 +11,7 @@ spring:
         acknowledge-mode: manual
         #每次接收多少条消息
         prefetch: 10
+    #开启confirm机制
+    publisher-confirm-type: correlated
+    #开启Return机制
+    publisher-returns: true
