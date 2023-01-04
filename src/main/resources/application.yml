@@ -1,0 +1,13 @@
+spring:
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    listener:
+      simple:
+        #手动ACK
+        acknowledge-mode: manual
+        #每次接收多少条消息
+        prefetch: 10
