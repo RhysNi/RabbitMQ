@@ -1373,3 +1373,279 @@ public class Publisher {
     }
 ```
 
+#### 死信队列（[Dead Lettering](https://www.rabbitmq.com/dlx.html)）
+
+> - 消费者拿到消息之后执行了nack或者reject，并且设置requeue为false，也就是说消费者拒绝消费这条消息，并且不让该条消息重新返回队列被别的消费者消费，则该消息为死信
+>
+> - 消息在队列中`生存时间(Message TTL)`超时了还没被消费
+>   - 可以针对某一个队列设置生存时间
+>   - 也可以指定队列中所有消息的生存时间
+>
+> - 队列已经到了消息的`最大长度(x-max-length)`后，后面再路由过来的消息直接为死信
+
+##### 应用场景
+
+> - 基于死信队列在队列消息已满的情况下，消息也不会被静默删除导致消息丢失
+> - 可以用于实现电商下单的延迟消费（5分钟付款时间）
+
+##### 死信队列实现
+
+> - 当生产者发布了一条消息到负责处理正常消息的交换机
+> - 消息成功路由到了正常队列中
+> - 如果监听正常队列的消费者拿到消息后执行了`NACK`或`Reject`，并且设置`requeue=false`拒绝消费这条消息同时不让该条消息重新返回队列被别的消费者消费，则该消息为死信
+> - 这时这条消息将由正常队列重新路由到`死信交换机`中
+> - 再由`死信交换机`根据`路由Key`路由到对应的`死信队列中`
+> - 最后由`死信消费者`监听这个`死信队列并拿到消息进行消费`
+
+![image-20230109233055293](https://i0.hdslb.com/bfs/album/2e1c95bcdcc9d9bac20833640dfb9a8a6acc6d4e.png)
+
+> 定义死信交换机和死信队列
+
+```java
+@Configuration
+public class DeadLetteringConfig {
+    //正常交换机
+    public static final String EXCHANGE = "test-exchange";
+    //死信交换机
+    public static final String DEAD_EXCHANGE = "dead-test-exchange";
+
+
+    //正常队列
+    public static final String QUEUE = "test-queue";
+    //死信队列
+    public static final String DEAD_QUEUE = "dead-test-queue";
+
+
+    //正常路由key
+    public static final String ROUTING_KEY = "*.test.#";
+    //死信路由key
+    public static final String DEAD_ROUTING_KEY = "dead.test.*";
+
+
+    @Bean
+    public Exchange testExchange() {
+        return ExchangeBuilder.topicExchange(EXCHANGE).build();
+    }
+
+    /**
+     * deadLetterRoutingKey消息变为死信时路由key需要被修改成什么
+     * @author Rhys.Ni
+     * @date 2023/1/10
+     * @param
+     * @return org.springframework.amqp.core.Queue
+     */
+    @Bean
+    public Queue testQueue() {
+        return QueueBuilder.durable(QUEUE).deadLetterExchange(DEAD_EXCHANGE).deadLetterRoutingKey("dead.test.ni").build();
+    }
+
+    @Bean
+    public Binding testBinding(Queue testQueue, Exchange testExchange) {
+        return BindingBuilder.bind(testQueue).to(testExchange).with(ROUTING_KEY).noargs();
+    }
+
+
+
+    @Bean
+    public Exchange deadTestExchange() {
+        return ExchangeBuilder.topicExchange(DEAD_EXCHANGE).build();
+    }
+
+    @Bean
+    public Queue deadTestQueue() {
+        return QueueBuilder.durable(DEAD_QUEUE).build();
+    }
+
+    @Bean
+    public Binding deadBinding(Queue deadTestQueue, Exchange deadTestExchange) {
+        return BindingBuilder.bind(deadTestQueue).to(deadTestExchange).with(DEAD_ROUTING_KEY).noargs();
+    }
+}
+```
+
+> 消费者拿到消息之后执行了nack或者reject，并且设置requeue为false
+
+```java
+@Component
+public class DeadConsumerListener {
+
+    @RabbitListener(queues = DeadLetteringConfig.QUEUE)
+    public void consumer(String msg, Channel channel, Message message) throws IOException {
+        System.out.println("正常队列msg:" + msg);
+        //tag,requeue
+        channel.basicReject(message.getMessageProperties().getDeliveryTag(), false);
+      	
+      	//tag,multiple,requeue 二选一即可
+        //channel.basicNack(message.getMessageProperties().getDeliveryTag(), false,false);
+    }
+}
+```
+
+> 针对某一个队列设置生存时间
+
+```java
+/**
+ * deadLetterRoutingKey消息变为死信时路由key需要被修改成什么
+ * @author Rhys.Ni
+ * @date 2023/1/10
+ * @param
+ * @return org.springframework.amqp.core.Queue
+ */
+@Bean
+public Queue testQueue() {
+  return QueueBuilder.durable(QUEUE).deadLetterExchange(DEAD_EXCHANGE).deadLetterRoutingKey("dead.test.ni")
+    //3s过后没被消费被转入死信队列
+    .ttl(3000).build();
+}
+```
+
+> 指定队列中所有消息的生存时间
+
+```java
+public void convertAndSendExpire() {
+  rabbitTemplate.convertAndSend(DeadLetteringConfig.EXCHANGE, "Rhys.test.Ni", "RhysNi RabbitMQ 实战手册（死信测试）", 
+                                message -> {
+    //3s过后没被消费被转入死信队列
+    message.getMessageProperties().setExpiration("3000");
+    return message;
+  });
+  System.out.println("消息发送成功");
+}
+```
+
+> 队列已经到了消息的`最大长度(x-max-length)`后，后面再路由过来的消息直接为死信
+
+```java
+/**
+ * deadLetterRoutingKey消息变为死信时路由key需要被修改成什么
+ * @author Rhys.Ni
+ * @date 2023/1/10
+ * @param
+ * @return org.springframework.amqp.core.Queue
+ */
+@Bean
+public Queue testQueue() {
+  return QueueBuilder.durable(QUEUE).deadLetterExchange(DEAD_EXCHANGE).deadLetterRoutingKey("dead.test.ni")
+    //3s过后没被消费被转入死信队列
+    // .ttl(3000)
+    //设置队列最大长度为1模拟超出队列长度，后续路由过来的消息转死信场景
+    .maxLength(1)
+    .build();
+}
+```
+
+#### 延迟交换机
+
+> - RabbitMQ只会监听队列最外侧的消息
+>
+> - 如果出现最外侧消息生存时间比后面消息都长
+>
+> - 就会导致后面的消息要等到最外侧消息生成时间到期进入死信队列后才能去监听后面消息的生存时间
+>
+> - ****
+>
+> - **这种情况就可能会导致Msg2的生存时间早就到期，却只能等待10s过后两条消息一起进了死信队列**
+> - **不过，如果刚好生产者发送了一个延时消息到交换机中，这时服务器宕机或服务重启消息就丢失了**
+
+![image-20230110025712023](https://i0.hdslb.com/bfs/album/28025f6294dc2fc74f132d6561f0956d6c484ec9.png)
+
+##### 延迟交换机安装
+
+> - **[点击下载延迟交换机插件(rabbitmq_delayed_message_exchange)](https://objects.githubusercontent.com/github-production-release-asset-2e65be/32327910/b9de3cea-69df-4b49-a647-d2174745e7c0?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIWNJYAX4CSVEH53A%2F20230109%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20230109T192336Z&X-Amz-Expires=300&X-Amz-Signature=c307d082d6727c005d1fbb73afa3f4735b8a67f69bca3c0cdee999398649a1d9&X-Amz-SignedHeaders=host&actor_id=58049956&key_id=0&repo_id=32327910&response-content-disposition=attachment%3B%20filename%3Drabbitmq_delayed_message_exchange-3.11.1.ez&response-content-type=application%2Foctet-stream)**
+> - 移动到MQ服务的安装路径下的`plugins`目录
+
+![image-20230110032622610](https://i0.hdslb.com/bfs/album/de28cccb8b1214a2b49dfb2b3a4026fa1e0bef9a.png)
+
+> 移动到`plugins`目录后，跳转到`sbin`目录
+
+![image-20230110032842863](https://i0.hdslb.com/bfs/album/abadc306ad69ff2d7cb77e843654a53d0748bfcb.png)
+
+> 使用`rabbitmq-plugins`运行插件
+
+```shell
+rabbitmq-plugins enable rabbitmq_delayed_message_exchange
+```
+
+> 没有运行延迟交换机插件之前我们想创建一个交换机类型只有以下图中四种
+
+![image-20230110033103899](https://i0.hdslb.com/bfs/album/f20e9086488ca296ad0efdeee547830facef4e26.png)
+
+
+
+> 当我们开启延迟交换机插件后发现可选择的交换机类型中多了一个`x-delayed-message`类型
+
+![image-20230110033304367](https://i0.hdslb.com/bfs/album/8365b714f3c1ca409391f6f74f22b30485810e64.png)
+
+##### 代码案例
+
+```java
+@Configuration
+public class DelayedConfig {
+    //正常交换机
+    public static final String DELAYED_EXCHANGE = "delayed-exchange";
+    //正常队列
+    public static final String DELAYED_QUEUE = "delayed-queue";
+    //正常路由key
+    public static final String DELAYED_ROUTING_KEY = "delayed.test.#";
+
+    @Bean
+    public Exchange delayedExchange() {
+        Map<String, Object> args = new HashMap<>(1);
+        //指定延迟交换机类型
+        args.put("x-delayed-type", "topic");
+
+        Exchange exchange = new CustomExchange(DELAYED_EXCHANGE, "x-delayed-message", true, false, args);
+        return exchange;
+    }
+
+    @Bean
+    public Queue delayedQueue() {
+        return QueueBuilder.durable(DELAYED_QUEUE).build();
+    }
+
+    @Bean
+    public Binding delayedBinding(Queue delayedQueue, Exchange delayedExchange) {
+        return BindingBuilder.bind(delayedQueue).to(delayedExchange).with(DELAYED_ROUTING_KEY).noargs();
+    }
+}
+```
+
+> 测试发送延时消息
+
+```java
+@SpringBootTest
+public class DelayedPublisher {
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    @Test
+    public void convertAndSend() {
+        rabbitTemplate.convertAndSend(DelayedConfig.DELAYED_EXCHANGE, "delayed.test.Ni", 
+                                      "RhysNi RabbitMQ 实战手册（延迟交换机测试）");
+        System.out.println("消息发送成功");
+    }
+
+    @Test
+    public void convertAndSendExpire1() {
+        rabbitTemplate.convertAndSend(DelayedConfig.DELAYED_EXCHANGE, "delayed.test.Ni", 
+                                      "RhysNi RabbitMQ 实战手册（延迟交换机测试）", message -> {
+            //3s过后没被消费被转入死信队列
+            message.getMessageProperties().setDelay(30000);
+            return message;
+        });
+        System.out.println("消息发送成功");
+    }
+
+    @Test
+    public void convertAndSendExpire2() {
+        rabbitTemplate.convertAndSend(DelayedConfig.DELAYED_EXCHANGE, "delayed.test.Ni",
+                                      "RhysNi RabbitMQ 实战手册（延迟交换机测试）", message -> {
+            //3s过后没被消费被转入死信队列
+            message.getMessageProperties().setDelay(3000);
+            return message;
+        });
+        System.out.println("消息发送成功");
+    }
+}
+```
+
