@@ -1019,7 +1019,7 @@ public class Publisher {
 }
 ```
 
-### SpringBoot集成RabbitMQ
+## SpringBoot集成RabbitMQ
 
 > NEW PROJECT
 
@@ -1055,7 +1055,7 @@ public class Publisher {
 </dependencies>
 ```
 
-#### 配置RabbitMQ
+### 配置RabbitMQ
 
 ```yaml
 spring:
@@ -1073,7 +1073,7 @@ spring:
         prefetch: 10
 ```
 
-#### 创建RabbitMQ配置类，声明交换机和队列信息
+### 创建RabbitMQ配置类，声明交换机和队列信息
 
 > - 定义交换机(`Exchange:topicExchange`）
 > - 定义队列(`Queue:durable：持久化队列、nonDurable：非持久化队列`）
@@ -1130,7 +1130,7 @@ public class RabbitMQConfig {
 }
 ```
 
-#### 创建生产者
+### 创建生产者
 
 ```java
 /**
@@ -1181,11 +1181,11 @@ public class Publisher {
 
 > 发送成功后查看RabbitMQ图形化界查看消息已经成功发送到对应的队列中，下面咱们就创建消费者去监听队列将这条消息消费掉
 
-![image-20221214001304299](https://i0.hdslb.com/bfs/album/5d7f30e55b639e60638ae5563bab54ab36faf23c.png)
+​	![image-20221214001304299](https://i0.hdslb.com/bfs/album/5d7f30e55b639e60638ae5563bab54ab36faf23c.png)
 
-![image-20221214001329748](https://i0.hdslb.com/bfs/album/727636768b891b05b5ae1502aa645661dfb9471a.png)
+​	![image-20221214001329748](https://i0.hdslb.com/bfs/album/727636768b891b05b5ae1502aa645661dfb9471a.png)
 
-#### 创建消费者监听
+### 创建消费者监听
 
 > `correlationId`：消息唯一标识
 
@@ -1222,11 +1222,11 @@ public class ConsumerListener {
 
 ![image-20221214015458709](https://i0.hdslb.com/bfs/album/0eebef6dfb8a2b979eddd91cd00f4670e3fa10e5.png)
 
-### Springboot实现消息可靠传输
+## Springboot实现消息可靠传输
 
-#### Confirm机制
+### Confirm机制
 
-##### 配置
+#### 配置
 
 > 配置`application.yml`，开启`confirm机制`
 
@@ -1248,7 +1248,7 @@ spring:
     publisher-confirm-type: correlated
 ```
 
-##### 代码示例
+#### 代码示例
 
 ```java
 @SpringBootTest
@@ -1282,9 +1282,9 @@ public class Publisher {
 
 ![image-20230105031243157](https://i0.hdslb.com/bfs/album/90efb1ae9688983b5597cffb0e07f2c16095d2cc.png)
 
-#### Return机制
+### Return机制
 
-##### 配置
+#### 配置
 
 ```yaml
 spring:
@@ -1306,7 +1306,7 @@ spring:
     publisher-returns: true
 ```
 
-##### 代码示例
+#### 代码示例
 
 > **returnedMessage中可获取到交换机以及路由信息**
 
@@ -1344,9 +1344,9 @@ public class Publisher {
 
 ![image-20230105033142643](https://i0.hdslb.com/bfs/album/7a3321beb0d342efaba7ca05ca62edcf98f2ef2e.png)
 
-#### 消息持久化
+### 消息持久化
 
-##### 代码示例
+#### 代码示例
 
 > - new MessagePostProcessor()
 > - `MessageDeliveryMode.PERSISTENT`(持久化)
@@ -1373,7 +1373,7 @@ public class Publisher {
     }
 ```
 
-#### 死信队列（[Dead Lettering](https://www.rabbitmq.com/dlx.html)）
+## 死信队列（[Dead Lettering](https://www.rabbitmq.com/dlx.html)）
 
 > - 消费者拿到消息之后执行了nack或者reject，并且设置requeue为false，也就是说消费者拒绝消费这条消息，并且不让该条消息重新返回队列被别的消费者消费，则该消息为死信
 >
@@ -1383,12 +1383,12 @@ public class Publisher {
 >
 > - 队列已经到了消息的`最大长度(x-max-length)`后，后面再路由过来的消息直接为死信
 
-##### 应用场景
+### 应用场景
 
 > - 基于死信队列在队列消息已满的情况下，消息也不会被静默删除导致消息丢失
 > - 可以用于实现电商下单的延迟消费（5分钟付款时间）
 
-##### 死信队列实现
+### 死信队列实现
 
 > - 当生产者发布了一条消息到负责处理正常消息的交换机
 > - 消息成功路由到了正常队列中
@@ -1397,7 +1397,7 @@ public class Publisher {
 > - 再由`死信交换机`根据`路由Key`路由到对应的`死信队列中`
 > - 最后由`死信消费者`监听这个`死信队列并拿到消息进行消费`
 
-![image-20230109233055293](https://i0.hdslb.com/bfs/album/2e1c95bcdcc9d9bac20833640dfb9a8a6acc6d4e.png)
+​	![image-20230109233055293](https://i0.hdslb.com/bfs/album/2e1c95bcdcc9d9bac20833640dfb9a8a6acc6d4e.png)
 
 > 定义死信交换机和死信队列
 
@@ -1534,22 +1534,20 @@ public Queue testQueue() {
 }
 ```
 
-#### 延迟交换机
+### 延迟交换机
 
 > - RabbitMQ只会监听队列最外侧的消息
->
 > - 如果出现最外侧消息生存时间比后面消息都长
->
 > - 就会导致后面的消息要等到最外侧消息生成时间到期进入死信队列后才能去监听后面消息的生存时间
->
-> - ****
->
 > - **这种情况就可能会导致Msg2的生存时间早就到期，却只能等待10s过后两条消息一起进了死信队列**
+>
+> **总结：死信队列实现延迟消费时，如果延迟时间比较复杂，比较多，直接使用死信队列时，需要创建大量的队列还对应不同的时间，可以采用延迟交换机来解决这个问题**
+>
 > - **不过，如果刚好生产者发送了一个延时消息到交换机中，这时服务器宕机或服务重启消息就丢失了**
 
-![image-20230110025712023](https://i0.hdslb.com/bfs/album/28025f6294dc2fc74f132d6561f0956d6c484ec9.png)
+​	![image-20230110025712023](https://i0.hdslb.com/bfs/album/28025f6294dc2fc74f132d6561f0956d6c484ec9.png)
 
-##### 延迟交换机安装
+#### 延迟交换机安装
 
 > - **[点击下载延迟交换机插件(rabbitmq_delayed_message_exchange)](https://objects.githubusercontent.com/github-production-release-asset-2e65be/32327910/b9de3cea-69df-4b49-a647-d2174745e7c0?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIWNJYAX4CSVEH53A%2F20230109%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20230109T192336Z&X-Amz-Expires=300&X-Amz-Signature=c307d082d6727c005d1fbb73afa3f4735b8a67f69bca3c0cdee999398649a1d9&X-Amz-SignedHeaders=host&actor_id=58049956&key_id=0&repo_id=32327910&response-content-disposition=attachment%3B%20filename%3Drabbitmq_delayed_message_exchange-3.11.1.ez&response-content-type=application%2Foctet-stream)**
 > - 移动到MQ服务的安装路径下的`plugins`目录
@@ -1576,7 +1574,7 @@ rabbitmq-plugins enable rabbitmq_delayed_message_exchange
 
 ![image-20230110033304367](https://i0.hdslb.com/bfs/album/8365b714f3c1ca409391f6f74f22b30485810e64.png)
 
-##### 代码案例
+#### 代码案例
 
 ```java
 @Configuration
@@ -1649,3 +1647,103 @@ public class DelayedPublisher {
 }
 ```
 
+## 高可用集群
+
+### RabbitMQ镜像模式
+
+> 提供高可用服务的同时提升MQ效率
+>
+> - 如果没有Nginx做负载均衡,则有可能会使请求不均匀的打到MQ服务上，
+> - 请求量过大的某一个服务处理消息就会非常繁忙，
+> - 而请求量少的服务相对空闲时长较多，导致消息消费速度下降
+
+​	![image-20230112004905538](https://i0.hdslb.com/bfs/album/3fbff780f5161f55ae5af4726b0b1eb0660a9d7f.png)
+
+#### Docker安装最新版RabbitMQ
+
+```shell
+docker pull rabbitmq:latest
+```
+
+> 运行容器
+
+```shell
+docker run -d --hostname localhost --name rabbitmq -p 15672:15672 -p 5673:5672 rabbitmq
+```
+
+> 开启管理界面
+
+```shell
+docker exec -it 容器id /bin/bash
+```
+
+```shell
+rabbitmq-plugins enable rabbitmq_management
+```
+
+#### 配置Docker yml文件
+
+> 首先分别进入每台机器,创建对应目录文件夹`/usr/local/docker/rabbitmq-cluster_docker`
+
+```shell
+sudo mkdir -p  /usr/local/docker/rabbitmq-cluster_docker
+```
+
+> 第一台MQ配置
+>
+> - 在`/usr/local/docker/rabbitmq-cluster_docker`目录下创建`docker-compose.yml`文件
+> - 最后将docker脚本贴进去保存退出
+
+```yaml
+version: '3.1'
+services:
+  rabbitmq1:
+    image: rabbitmq:3.11.0-management-alpine
+    container_name: rabbitmq
+    hostname: rabbitmq1
+    extra_hosts:
+      - "rabbitmq1:172.19.105.54"
+      - "rabbitmq2:101.133.157.40"
+    environment: 
+      - RABBITMQ_ERLANG_COOKIE=RhysNi
+    ports:
+      - 5672:5672
+      - 15672:15672
+      - 4369:4369
+      - 25672:25672
+```
+
+> 第二台MQ配置同上，将配置内容替换成以下内容即可
+
+```yaml
+version: '3.1'
+services:
+  rabbitmq1:
+    image: rabbitmq:3.11.0-management-alpine
+    container_name: rabbitmq
+    hostname: rabbitmq2
+    extra_hosts:
+      - "rabbitmq1:172.19.105.54"
+      - "rabbitmq2:101.133.157.40"
+    environment: 
+      - RABBITMQ_ERLANG_COOKIE=RhysNi
+    ports:
+      - 5672:5672
+      - 15672:15672
+      - 4369:4369
+      - 25672:25672
+```
+
+> 最后分别在`/usr/local/docker/rabbitmq-cluster_docker`目录下执行以下命令启动容器
+
+```shell
+docker-compose up -d
+```
+
+> 特殊提示📢：如果`docker-compose`	命令报错`-bash: docker-compose: command not found`
+>
+> [command not found解决办法](https://blog.csdn.net/qq_35663625/article/details/107411857)
+>
+> 最后等待跑完即可
+
+![image-20230112023214774](https://i0.hdslb.com/bfs/album/7284dedcbbefee0a58d701cf503b2e448e2aa3de.png)
