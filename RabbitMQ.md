@@ -1659,29 +1659,7 @@ public class DelayedPublisher {
 
 ​	![image-20230112004905538](https://i0.hdslb.com/bfs/album/3fbff780f5161f55ae5af4726b0b1eb0660a9d7f.png)
 
-#### Docker安装最新版RabbitMQ
-
-```shell
-docker pull rabbitmq:latest
-```
-
-> 运行容器
-
-```shell
-docker run -d --hostname localhost --name rabbitmq -p 15672:15672 -p 5673:5672 rabbitmq
-```
-
-> 开启管理界面
-
-```shell
-docker exec -it 容器id /bin/bash
-```
-
-```shell
-rabbitmq-plugins enable rabbitmq_management
-```
-
-#### 配置Docker yml文件
+#### Docker yml安装配置
 
 > 首先分别进入每台机器,创建对应目录文件夹`/usr/local/docker/rabbitmq-cluster_docker`
 
@@ -1691,18 +1669,23 @@ sudo mkdir -p  /usr/local/docker/rabbitmq-cluster_docker
 
 > 第一台MQ配置
 >
-> - 在`/usr/local/docker/rabbitmq-cluster_docker`目录下创建`docker-compose.yml`文件
-> - 最后将docker脚本贴进去保存退出
+> 在`/usr/local/docker/rabbitmq-cluster_docker`目录下创建`docker-compose.yml`文件
+
+```sh
+vi docker-compose.yml
+```
+
+> 将docker脚本贴进去保存退出
 
 ```yaml
 version: '3.1'
 services:
   rabbitmq1:
     image: rabbitmq:3.11.0-management-alpine
-    container_name: rabbitmq
+    container_name: rabbitmq1
     hostname: rabbitmq1
     extra_hosts:
-      - "rabbitmq1:172.19.105.54"
+      - "rabbitmq1:120.25.253.51"
       - "rabbitmq2:101.133.157.40"
     environment: 
       - RABBITMQ_ERLANG_COOKIE=RhysNi
@@ -1718,12 +1701,12 @@ services:
 ```yaml
 version: '3.1'
 services:
-  rabbitmq1:
+  rabbitmq2:
     image: rabbitmq:3.11.0-management-alpine
-    container_name: rabbitmq
+    container_name: rabbitmq2
     hostname: rabbitmq2
     extra_hosts:
-      - "rabbitmq1:172.19.105.54"
+      - "rabbitmq1:120.25.253.51"
       - "rabbitmq2:101.133.157.40"
     environment: 
       - RABBITMQ_ERLANG_COOKIE=RhysNi
@@ -1747,3 +1730,86 @@ docker-compose up -d
 > 最后等待跑完即可
 
 ![image-20230112023214774](https://i0.hdslb.com/bfs/album/7284dedcbbefee0a58d701cf503b2e448e2aa3de.png)
+
+> 最后访问两个服务器的RabbitMQ服务
+>
+> **PS📢:如果用了云服务器安装完成发现访问不了管理页面的话，记得去安全组把涉及到的几个端口给添加一下，再检查一下防火墙，可放开相关端口或关闭防火墙**
+
+![image-20230113020805932](https://i0.hdslb.com/bfs/album/24e993027a4e60b7d6dacb50a22416a63b3f0be5.png)
+
+#### RabbitMQ实现服务Join
+
+> 现在需要将`rabbitmq2`加入到`rabbitmq1`
+>
+> 首先进入`rabbitmq2`服务所在的docker容器内
+
+```sh
+docker exec -it rabbitmq2 bash
+```
+
+> 进入容器后执行以下命令停止当前mq服务
+
+```sh
+rabbitmqctl stop_app
+```
+
+> 重置mq服务
+
+```sh
+rabbitmqctl reset
+```
+
+> 执行以下命令将`rabbitmq2`加入到`rabbitmq1`组成集群，这个命令执行完要等待一会儿
+>
+> PS📢:下方命令中`rabbit@rabbimq1`来自于要加入的`目标服务`的`Overview下的Nodes节点表中的Name值`
+
+![image-20230113023636384](https://i0.hdslb.com/bfs/album/54a9446064a408d809b470c6be737fce82cf3a4a.png)
+
+```sh
+rabbitmqctl join_cluster rabbit@rabbimq1
+```
+
+> 以上命令执行图示如下
+
+![image-20230113023424654](https://i0.hdslb.com/bfs/album/ec3ed80a8e1aa03b2d14e0f0e40304a7beeab0dc.png)
+
+> 当命令执行完以后可能会报错如图
+
+![image-20230113024044039](https://i0.hdslb.com/bfs/album/8e3d9233f16ff0b1ab165f6b99e6458e88ce7aeb.png)
+
+> 退出容器
+
+```sh
+exit
+clear
+```
+
+> 尝试关闭防火墙
+>
+> 先开启启后关闭确保万无一失
+
+```sh
+systemctl start firewalld
+systemctl stop firewalld
+```
+
+> 重启docker
+
+```sh
+systemctl restart docker
+```
+
+> 重启mq服务
+
+```sh
+docker restart 容器ID
+```
+
+> 最后再次进入容器进行以下操作
+
+```shell
+docker exec -it rabbitmq2 bash
+rabbitmqctl stop_app
+rabbitmqctl reset
+rabbitmqctl join_cluster rabbit@rabbimq1
+```
