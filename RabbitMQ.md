@@ -1685,7 +1685,7 @@ services:
     container_name: rabbitmq1
     hostname: rabbitmq1
     extra_hosts:
-      - "rabbitmq1:120.25.253.51"
+      - "rabbitmq1:175.24.233.240"
       - "rabbitmq2:101.133.157.40"
     environment: 
       - RABBITMQ_ERLANG_COOKIE=RhysNi
@@ -1706,7 +1706,7 @@ services:
     container_name: rabbitmq2
     hostname: rabbitmq2
     extra_hosts:
-      - "rabbitmq1:120.25.253.51"
+      - "rabbitmq1:175.24.233.240"
       - "rabbitmq2:101.133.157.40"
     environment: 
       - RABBITMQ_ERLANG_COOKIE=RhysNi
@@ -1724,10 +1724,15 @@ docker-compose up -d
 ```
 
 > 特殊提示📢：如果`docker-compose`	命令报错`-bash: docker-compose: command not found`
->
-> [command not found解决办法](https://blog.csdn.net/qq_35663625/article/details/107411857)
->
-> 最后等待跑完即可
+
+```sh
+yum -y install epel-release
+yum -y install python-pip
+pip install --upgrade pip==20.3.4
+sudo pip install docker-compose
+```
+
+> 最后重新执行`docker-compose up -d`等待跑完即可
 
 ![image-20230112023214774](https://i0.hdslb.com/bfs/album/7284dedcbbefee0a58d701cf503b2e448e2aa3de.png)
 
