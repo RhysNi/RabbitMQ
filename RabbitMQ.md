@@ -1649,8 +1649,6 @@ public class DelayedPublisher {
 
 ## 高可用集群
 
-### RabbitMQ镜像模式
-
 > 提供高可用服务的同时提升MQ效率
 >
 > - 如果没有Nginx做负载均衡,则有可能会使请求不均匀的打到MQ服务上，
@@ -1685,8 +1683,8 @@ services:
     container_name: rabbitmq1
     hostname: rabbitmq1
     extra_hosts:
-      - "rabbitmq1:120.25.253.51"
-      - "rabbitmq2:101.133.157.40"
+      - "rabbitmq1:101.133.157.40"
+      - "rabbitmq2:120.25.253.51"
     environment: 
       - RABBITMQ_ERLANG_COOKIE=RhysNi
     ports:
@@ -1706,8 +1704,8 @@ services:
     container_name: rabbitmq2
     hostname: rabbitmq2
     extra_hosts:
-      - "rabbitmq1:120.25.253.51"
-      - "rabbitmq2:101.133.157.40"
+      - "rabbitmq1:101.133.157.40"
+      - "rabbitmq2:120.25.253.51"
     environment: 
       - RABBITMQ_ERLANG_COOKIE=RhysNi
     ports:
@@ -1735,7 +1733,7 @@ docker-compose up -d
 >
 > **PS📢:如果用了云服务器安装完成发现访问不了管理页面的话，记得去安全组把涉及到的几个端口给添加一下，再检查一下防火墙，可放开相关端口或关闭防火墙**
 
-![image-20230113020805932](https://i0.hdslb.com/bfs/album/24e993027a4e60b7d6dacb50a22416a63b3f0be5.png)
+![image-20230115235621644](https://i0.hdslb.com/bfs/album/80245c406d16c083632b20bc10436693d9e373de.png)
 
 #### RabbitMQ实现服务Join
 
@@ -1766,50 +1764,219 @@ rabbitmqctl reset
 ![image-20230113023636384](https://i0.hdslb.com/bfs/album/54a9446064a408d809b470c6be737fce82cf3a4a.png)
 
 ```sh
-rabbitmqctl join_cluster rabbit@rabbimq1
+rabbitmqctl join_cluster rabbit@rabbitmq1
 ```
 
-> 以上命令执行图示如下
+##### **Join报错解决方案**
 
-![image-20230113023424654](https://i0.hdslb.com/bfs/album/ec3ed80a8e1aa03b2d14e0f0e40304a7beeab0dc.png)
-
-> 当命令执行完以后可能会报错如图
-
-![image-20230113024044039](https://i0.hdslb.com/bfs/album/8e3d9233f16ff0b1ab165f6b99e6458e88ce7aeb.png)
-
-> 退出容器
-
-```sh
-exit
-clear
-```
-
-> 尝试关闭防火墙
+> `如果当命令执行完以后可能会报错如图`
 >
-> 先开启启后关闭确保万无一失
+> **没报错直接[点击这里](#join_success)跳过以下步骤即可**![image-20230113024044039](https://i0.hdslb.com/bfs/album/8e3d9233f16ff0b1ab165f6b99e6458e88ce7aeb.png)
+>
+> - 退出容器
+>
+>   ```sh
+>   exit
+>   clear
+>   ```
+>
+> - 尝试关闭防火墙,先开启启后关闭确保万无一失
+>
+>   ```sh
+>   systemctl start firewalld
+>   systemctl stop firewalld
+>   ```
+>
+> - 重启docker
+>
+>   ```
+>   systemctl restart dockeshr
+>   ```
+>
+> - 重启mq服务
+>
+>   ```sh
+>   docker restart 容器ID
+>   ```
+>
+> - 最后再次进入容器进行以下操作
+>
+>   ```sh
+>   docker exec -it rabbitmq2 bash
+>   rabbitmqctl stop_app
+>   rabbitmqctl reset
+>   rabbitmqctl join_cluster rabbit@rabbitmq1
+>   rabbitmqctl start_app
+>   ```
+
+##### **<a id="join_success">正常Join后续操作流程</a>**
+
+> 加入成功后应该可以在`RabbitMQ1`服的`Overview > Nodes`节点列表看到如下图所示结果
+>
+> - 因为咱们`RabbitMQ2`服务被停止了，所以看不到节点信息，但是已经可以说明咱们`RabbitMQ2`服务已经加入到`RabbitMQ1`服务组成了一个MQ集群
+
+![image-20230116001411802](https://i0.hdslb.com/bfs/album/58f3bdb918fc28a43b17234a3bc7605be14608de.png)
+
+> 这时咱们再重启一下`RabbitMQ2`服务就可以互相看到几点信息了
 
 ```sh
-systemctl start firewalld
-systemctl stop firewalld
+rabbitmqctl start_app
 ```
 
-> 重启docker
+![image-20230116001732740](https://i0.hdslb.com/bfs/album/3daf2acb46c0842b7a6c08aebbfb4ec7f1ec9d1c.png)
 
-```sh
-systemctl restart docker
+#### RabbitMQ镜像模式
+
+> 通过以上一番操作下来之后，我们可以在两台mq中互相看到对方服务节点的信息了
+>
+> - 如果`RabbitMQ1`创建了一个队列`queue1`，这时，在`RabbitMQ2`的队列表中也是可以看到这个队列的
+> - 只不过这个队列属于`RabbitMQ1`
+
+​	![](https://i0.hdslb.com/bfs/album/37cff28a02dd07fa785e9f2266499556c5a0d2f2.png)
+
+> 所以，当`RabbitMQ1`宕机后，这个`queue1`队列状态也会变为`down`
+
+![image-20230116004240742](https://i0.hdslb.com/bfs/album/38fa94e819f572c28c57532222235cd6aff528f2.png)
+
+![image-20230116004136635](https://i0.hdslb.com/bfs/album/17b6e1534c98d9b4c1f2fa4a6310ea9285ca4a1a.png)
+
+> 所以我们需要创建`镜像模式`来让MQ集群真正具备`在提供高可用服务的同时还能提升MQ效率`
+
+##### 图形界面创建`Policy`
+
+> 填写镜像同步策略基础信息
+
+![image-20230116010214371](https://i0.hdslb.com/bfs/album/d234e0d510b2656b99f1d4381d971f473ba6ecda.png)
+
+##### HA mode设置
+
+> - `all` (镜像到集群中的所有节点)
+>
+> - `exactly`(镜像到一组节点)
+>
+> - `nodes`(镜像到显式节点列表)
+>
+> **如果选择后两者之一，必须设置`HA-params`**
+
+| ha-mode | all  |
+| ------- | ---- |
+
+##### HA sync mode
+
+> 设置手动同步还是自动同步
+>
+> - `manul（手动同步）`:已有的历史消息不同步，只同步后续接收到的新消息
+> - `automatic（自动同步）`：同步所有的消息，不管新消息还是历史消息
+>
+> - **为了保证安全不丢失，选用自动会更好**
+
+| ha-sync-mode | automatic |
+| ------------ | --------- |
+
+![image-20230116011318030](https://i0.hdslb.com/bfs/album/ed6ec5f51ced6f495cc7e30d3c4a4bdb5c7903a4.png)
+
+> **点击`Add`按钮保存添加策略**
+
+![image-20230116011631714](https://i0.hdslb.com/bfs/album/a78759cb7457c6fbdc48af2ad9596ca6f5ebb46d.png)
+
+> 这时咱们再点进`queue1`队列中查看详细信息就可以看到以下信息
+
+![image-20230116011857436](https://i0.hdslb.com/bfs/album/074d5120281705df6705dcacee5518aedd3e2cb4.png)
+
+> 完成RabbitMQ镜像同步之后，如果`RabbitMQ1`再次宕机，那么`queue1`在`RabbitMQ2`中仍然可用，但是所属节点则变成了`RabbitMQ2`
+>
+> - 没有镜像节点是因为我们集群中只有两台机器，宕机一台没有其他机器可以做镜像了
+
+![image-20230116015957330](https://i0.hdslb.com/bfs/album/c42568e3acd517aace97e159db1b45b8b2ef4bb1.png)
+
+> - 如果在`RabbitMQ1`宕机后有了新消息进来
+>
+> - 当`RabbitMQ1`再次启动后，则会将其作为镜像节点同步所有的交换机和队列信息过去
+>
+> - 重启`RabbitMQ1`服务，查看队列中消息
+
+![image-20230116020423829](https://i0.hdslb.com/bfs/album/86620287e15d4df1b9d372a2e726f5ee985bfb0a.png)
+
+> 如上图，队列中的一条消息是`mq1`宕机时候由`mq2`节点在`queue1`队列发布的一条消息，在`mq1`重启后，将`mq1`设置为了镜像节点，并且将队列消息同步到了`mq1`，这就是`RabbitMQ`的镜像模式
+
+## Headers Exchange
+
+> - 类似于`Topic`，但`Topic`仅限于字符串的方式，且需要用`.`进行分割
+>
+> - 而`headers`可以支持的规则形式更加丰富
+> - 根据`Headers`中携带的`key-value`参数进行匹配
+>
+> - 适用于匹配值为`对象`或者`hash`值时使用
+
+### x-match
+
+#### all
+
+> `x-match = all`如下图
+>
+> - 由于下面`Headers`中携带的属性`age = 23` 与我们发送的属性`age = 24`匹配不上，所以无法路由到下面的队列中
+
+​	![image-20230116030511660](https://i0.hdslb.com/bfs/album/0239ff3468fbfef621c90ef6f6f18fa36ba698e2.png)
+
+#### any
+
+> `x-match = any`如下图
+>
+> - 由于下方队列的`x-match = any`，所以`Headers`中携带的参数`name = RhysNi`与我们发布的消息中`name = RhysNi`相匹配，所以这条调戏可以同时被路由到两个队列
+
+![image-20230116025722340](https://i0.hdslb.com/bfs/album/976d7d9ff5a13aea6b51a3eba3450cc6c9e3fc84.png)![image-20230116022642938]()
+
+### 代码示例
+
+```java
+public class Publisher {
+    public static final String QUEUE_NAME1 = "headersQ1";
+    public static final String QUEUE_NAME2 = "headersQ2";
+    public static final String EXCHANGE_NAME = "headersExchange";
+
+    public static void main(String[] args) throws Exception {
+        //构建连接对象
+        Connection connection = ConnectionUtil.getConnection();
+        //构建channel
+        Channel channel = connection.createChannel();
+        //构建交换机
+        channel.exchangeDeclare(EXCHANGE_NAME, BuiltinExchangeType.HEADERS);
+        //构建队列（队列名称,队列是否需要持久化,是否设置为排外队列(只能由一个消费者监听),长时间未使用自动删除，其他参数）
+        channel.queueDeclare(QUEUE_NAME1, false, false, false, null);
+        channel.queueDeclare(QUEUE_NAME2, false, false, false, null);
+
+        //构建交换机和队列绑定规则
+        Map<String, Object> params1 = new HashMap<>();
+        params1.put("x-match", "all");
+        params1.put("name", "RhysNi");
+        params1.put("age", "24");
+
+        Map<String, Object> params2 = new HashMap<>();
+        params2.put("x-match", "any");
+        params2.put("name", "RhysNi");
+        params2.put("age", "23");
+
+        //绑定交换机和队列
+        channel.queueBind(QUEUE_NAME1, EXCHANGE_NAME, "", params1);
+        channel.queueBind(QUEUE_NAME2, EXCHANGE_NAME, "", params2);
+
+        //构建headers
+        Map<String, Object> headers = new HashMap<>();
+        headers.put("name", "RhysNi");
+        headers.put("age", "24");
+
+        AMQP.BasicProperties properties = new AMQP.BasicProperties()
+                .builder()
+                .headers(headers)
+                .build();
+
+        //发送消息
+        channel.basicPublish(EXCHANGE_NAME, "", properties, "测试Headers Exchange".getBytes(StandardCharsets.UTF_8));
+        System.out.println("消息发送成功");
+    }
+}
 ```
 
-> 重启mq服务
+> 最终结果：`headersQ1`和`headersQ2`两个队列都收到了这条消息
 
-```sh
-docker restart 容器ID
-```
-
-> 最后再次进入容器进行以下操作
-
-```shell
-docker exec -it rabbitmq2 bash
-rabbitmqctl stop_app
-rabbitmqctl reset
-rabbitmqctl join_cluster rabbit@rabbimq1
-```
+![image-20230116025607859](https://i0.hdslb.com/bfs/album/f5ed0fecb55a68a917c5baaaba063c363d17e8b1.png)

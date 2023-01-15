@@ -9,7 +9,7 @@ import com.rabbitmq.client.ConnectionFactory;
  * @date 2022/11/22 3:02 AM
  */
 public class ConnectionUtil {
-    public static final String RABBITMQ_HOST = "127.0.0.1";
+    public static final String RABBITMQ_HOST = "101.133.157.40";
 
     public static final int RABBITMQ_PORT = 5672;
 
